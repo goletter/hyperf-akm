@@ -39,6 +39,8 @@ php bin/hyperf.php vendor:publish goletter/hyperf-akm
 return [
     'base_uri' => env('AKM_BASE_URL', env('CKM_BASE_URL', 'https://akms-openapi.bluemediagroup.cn')),
     'timeout' => (float) env('AKM_TIMEOUT', 10),
+    // 请求耗时日志，默认关闭；开启后成功/失败都会写 call_logs（需 hyperf-utils）
+    'log_request' => (bool) env('AKM_LOG_REQUEST', false),
     // 'default_headers' => [],
 ];
 ```
@@ -47,9 +49,10 @@ return [
 |------|------|
 | `base_uri` | OpenAPI 根地址。`AKM_BASE_URL` 为空时回退 `CKM_BASE_URL` |
 | `timeout` | HTTP 超时，秒，默认 `10` |
+| `log_request` | 是否记录每次请求耗时（`duration_ms`），默认 `false` |
 | `default_headers` | 每个请求附带的头。`Authorization` 由 Client 按当前 token 写入 |
 
-不传 `base_uri`、`timeout` 时，`new AkmClient($token)` 会读取这份配置。构造参数覆盖配置文件。
+不传 `base_uri`、`timeout`、`log_request` 时，`new AkmClient($token)` 会读取这份配置。构造参数覆盖配置文件。
 
 ## 快速开始
 
@@ -215,7 +218,9 @@ $client->getAccessToken();
 $client->setAccessTokens([$tokenB, $tokenC]);
 ```
 
-## 调用日志
+## 调用日志 / 耗时
+
+每次请求都会统计耗时（毫秒）。`setCallLogHandler` 的回调里带 `duration_ms`：
 
 ```php
 AkmClient::setCallLogHandler(function (array $log): void {
@@ -223,12 +228,24 @@ AkmClient::setCallLogHandler(function (array $log): void {
     // $log['api_interface']
     // $log['is_success']   1 成功，0 失败
     // $log['error']
+    // $log['duration_ms']  请求耗时（毫秒）
     // $log['call_hour']    Y-m-d H:00:00
     // $log['created_at']
 });
 ```
 
-失败时，若项目安装了 `goletter/hyperf-utils` 并提供 `logging()`，还会写一条 `call_logs` 日志。未设置 handler 时不回调。
+| 开关 | 行为 |
+|------|------|
+| `log_request=false`（默认） | 失败时若有 `hyperf-utils` 的 `logging()`，写 `call_logs`（含 `duration_ms`） |
+| `log_request=true` | 成功/失败都会写 `call_logs`（含 `duration_ms`） |
+| `setCallLogHandler` | 有 handler 时每次请求回调（含 `duration_ms`），与上面开关独立 |
+
+```php
+// 构造时强制开启
+$client = new AkmClient($accessToken, logRequest: true);
+```
+
+未设置 handler 且未开 `log_request`、请求又成功时，不写额外日志。
 
 ## 异常
 
