@@ -106,15 +106,24 @@ class OpenAccountApi
             throw new InvalidArgumentException("Business registration file not found: {$filePath}");
         }
 
-        $multipart = [
-            [
-                'name' => 'br_file',
-                'contents' => fopen($filePath, 'rb'),
-                'filename' => basename($filePath),
-            ],
-        ];
+        $handle = fopen($filePath, 'rb');
+        if ($handle === false) {
+            throw new InvalidArgumentException("Unable to open business registration file: {$filePath}");
+        }
 
-        return $this->client->postMultipart('/open_api/v1.0/user_open/tt_upload_br', $multipart, [], 'POST:/user_open/tt_upload_br');
+        try {
+            return $this->client->postMultipart('/open_api/v1.0/user_open/tt_upload_br', [
+                [
+                    'name' => 'br_file',
+                    'contents' => $handle,
+                    'filename' => basename($filePath),
+                ],
+            ], [], 'POST:/user_open/tt_upload_br');
+        } finally {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+        }
     }
 
     /**

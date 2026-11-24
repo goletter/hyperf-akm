@@ -6,11 +6,13 @@ namespace Goletter\Akm;
 
 use Goletter\Akm\Exceptions\AkmTokenExpiredException;
 use Goletter\Akm\Exceptions\AkmsApiException;
+use Goletter\Adv\AdvFactory;
 use Goletter\Adv\Support\RotatesAccessTokens;
 use Goletter\Adv\Support\SafeLogs;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
+use Hyperf\Guzzle\ClientFactory;
 
 class AkmClient
 {
@@ -43,6 +45,7 @@ class AkmClient
         ?string $baseUri = null,
         ?float $timeout = null,
         ?bool $logRequest = null,
+        ?Client $http = null,
     ) {
         $config = self::packageConfig();
         $baseUri ??= (string) ($config['base_uri'] ?? '');
@@ -55,7 +58,7 @@ class AkmClient
         $this->bootstrapAccessTokens($accessToken);
         $this->baseUri = rtrim($baseUri, '/');
         $this->logRequest = $logRequest;
-        $this->http = new Client([
+        $this->http = $http ?? self::createHttpClient([
             'base_uri' => $this->baseUri,
             'timeout' => $timeout,
         ]);
@@ -67,27 +70,47 @@ class AkmClient
     }
 
     /**
+     * 优先容器内 ClientFactory（协程 Handler），否则走 AdvFactory / 原生 Guzzle.
+     *
+     * @param array<string, mixed> $options
+     */
+    protected static function createHttpClient(array $options): Client
+    {
+        $container = self::container();
+        if ($container !== null && $container->has(ClientFactory::class)) {
+            return $container->get(ClientFactory::class)->create($options);
+        }
+
+        return AdvFactory::httpClient($options);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private static function packageConfig(): array
     {
-        if (! class_exists(\Hyperf\Context\ApplicationContext::class)) {
-            return [];
-        }
-
-        $context = \Hyperf\Context\ApplicationContext::class;
-        if (! $context::hasContainer()) {
-            return [];
-        }
-
-        $container = $context::getContainer();
-        if (! $container->has(\Hyperf\Contract\ConfigInterface::class)) {
+        $container = self::container();
+        if ($container === null || ! $container->has(\Hyperf\Contract\ConfigInterface::class)) {
             return [];
         }
 
         $config = $container->get(\Hyperf\Contract\ConfigInterface::class)->get('akm', []);
 
         return is_array($config) ? $config : [];
+    }
+
+    private static function container(): ?\Psr\Container\ContainerInterface
+    {
+        if (! class_exists(\Hyperf\Context\ApplicationContext::class)) {
+            return null;
+        }
+
+        $context = \Hyperf\Context\ApplicationContext::class;
+        if (! $context::hasContainer()) {
+            return null;
+        }
+
+        return $context::getContainer();
     }
 
     private static function env(string $key, string $default = ''): string
